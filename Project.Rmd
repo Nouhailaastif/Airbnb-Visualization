@@ -1,0 +1,211 @@
+---
+title: "NYC AirBnb Report"
+author: "Nouhaila Astif"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+> Plan 
+
+* The question
+* code:
+   + Data exploration and cleaning
+   + Data visualization
+   + Data mining 
+
+
+
+```{r libraries,echo=FALSE, message=FALSE,warning=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(leaflet)
+library(tidytext)
+library(widyr)
+library(ggplot2)
+library(igraph)
+library(ggraph)
+library(stringr)
+library(wesanderson)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+```
+
+
+```{r, loading_data, echo=FALSE}
+data <- read.csv("AB_NYC_2019.csv")
+```
+
+
+## Question 
+
+> What factor affects more the price of the AirBnb in NYC 
+
+## Our Analysis
+
+
+```{r}
+length(data)
+```
+```{r}
+nrow(data)
+```
+
+```{r}
+colnames(data)
+```
+```{r}
+summary(data$price)
+```
+
+## Cleaning data
+
+> we will try to find the names of columns which contain missing values
+
+```{r}
+colnames(data)[colSums(is.na(data)) > 0]
+```
+> then replacing the null reviews to 0
+
+```{r}
+data$reviews_per_month[is.na(data$reviews_per_month)] <- 0
+```
+> checking 
+
+```{r}
+colnames(data)[colSums(is.na(data)) > 0]
+```
+
+> subsetting the columns we find relevant, for that we're going to dropsome columns
+
+```{r}
+drop <- c("id","last_review","host_name")
+nyc <- data[,!(names(data)%in%drop)]
+```
+
+## Data Visualization
+
+> first let's plot the prominent descriptive data in our data set
+
+* Manhattan
+
+```{r}
+# since we cannot plot the almost 50K adress, we're going to plot only 20 adress from two cities as a sample
+
+manhattan <- nyc[nyc$neighbourhood_group == "Manhattan",] %>% head(20)
+```
+
+
+```{r, warning=FALSE,message=FALSE}
+leaf_manhattan <-manhattan %>% 
+  leaflet() %>% 
+  addTiles() %>% 
+  addMarkers(popup = manhattan$neighbourhood_group)
+leaf_manhattan
+```
+
+* Brooklyn
+```{r, message=FALSE, warning=FALSE}
+brooklyn <- nyc[nyc$neighbourhood_group == "Brooklyn",] %>% head(20)
+
+leaf_br <-brooklyn %>% 
+  leaflet() %>% 
+  addTiles() %>% 
+  addMarkers(popup = brooklyn$neighbourhood_group)
+leaf_br
+```
+
+> graphs about price 
+
+```{r,warning=FALSE, message=FALSE}
+# Filtering on price
+
+b<-nyc %>% select(price) %>% filter(price<=5000)
+
+ggplot(b, aes(x=price)) + 
+    geom_histogram(alpha=0.9,fill="lightsalmon4") +theme_minimal() +
+    ggtitle("The distribution of price") + labs(x="Price")
+
+
+```
+
+
+```{r}
+# transforming price to log since it's a highly skewed variable to a have a more normalized data
+
+table<-aggregate(log(nyc$price + 1),list(nyc$neighbourhood_group,nyc$room_type), mean)
+
+```
+
+
+```{r}
+# Determine the palette we want to use in the 
+Color <- wes_palette("GrandBudapest1", n= 5, type= "continuous")
+ggplot(table, aes(factor(Group.2), x, fill = Group.1)) + 
+  geom_bar(stat="identity", position = "dodge") + 
+  scale_fill_manual(breaks = c("Bronx", "Brooklyn", "Manhattan","Queens","Staten Island"), 
+                       values = Color)+theme_minimal() +
+                      labs(x="",y='Log of price',fill="Neighbourhood")
+```
+
+
+```{r}
+homes <- nyc[nyc$room_type =="Entire home/apt" ,]
+
+homes_log<-aggregate(log(homes$price), list(homes$neighbourhood,homes$neighbourhood_group), mean)
+homes_log<-homes_log %>% arrange(desc(x))
+
+
+```
+
+```{r}
+ggplot(homes_log[1:10,], aes(reorder(Group.1,-x), x, fill = Group.2)) + 
+    geom_bar(stat="identity", position = "dodge") + 
+    theme(axis.text.x=element_blank()) + ggtitle("Best 10 neighborhoods") +
+    xlab("Neighborhood") +
+    ylab("Log-price") + ylim(0,8) +
+    labs(fill="Neighborhood")+
+    scale_fill_manual(breaks = c("Bronx", "Brooklyn", "Manhattan","Queens","Staten Island"), 
+                       values=Color)
+
+```
+
+## Data wrangling and Mining part 
+
+```{r}
+# tidying the data 
+Names <- tibble(Id = nyc$host_id,
+                Name=nyc$name) %>% 
+  unnest(Name)
+Names
+```
+
+
+```{r, message= FALSE, warning=FALSE}
+#token word
+
+Names1 <- mutate(Names, name= as.character(Names$Name))
+
+Names1 <- Names1 %>% unnest_tokens(word, name) %>% anti_join(stop_words)
+Names1 <-Names1 %>% select("Id","word")
+Names1
+```
+
+```{r}
+Names <- Names1 %>% count(word, sort=TRUE)
+Names
+```
+
+```{r}
+set.seed(1234)
+wordcloud(words = Names1$word, freq = Names$n, min.freq = 1,
+          max.words=200, random.order=FALSE, rot.per=0.50, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
